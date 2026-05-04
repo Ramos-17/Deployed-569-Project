@@ -1,0 +1,32 @@
+
+import torch
+import torch.nn as nn
+
+class ClimateLSTM(nn.Module):
+    def __init__(self, input_size, hidden_size=16, num_layers=1, dropout=0.3):
+        super(ClimateLSTM, self).__init__()
+
+        self.lstm = nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True
+        )
+
+        self.dropout1 = nn.Dropout(dropout)
+        self.fc1 = nn.Linear(hidden_size, 8)
+        self.relu = nn.ReLU()
+        self.dropout2 = nn.Dropout(dropout)
+        self.fc2 = nn.Linear(8, 1)
+
+    def forward(self, x):
+        lstm_out, _ = self.lstm(x)
+        last_output = lstm_out[:, -1, :]
+
+        x = self.dropout1(last_output)
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.dropout2(x)
+        x = self.fc2(x)
+
+        return x
