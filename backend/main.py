@@ -16,28 +16,42 @@ from pydantic import BaseModel, Field
 
 BASE_DIR = Path(__file__).resolve().parent
 ARTIFACTS_DIR = BASE_DIR / "artifacts"
-DEFAULT_MODEL_PATH = ARTIFACTS_DIR / "model.pth"
-DEFAULT_SCALER_PATH = ARTIFACTS_DIR / "scaler.pkl"
-DEFAULT_DATA_PATH = ARTIFACTS_DIR / "historical_climate_data.csv"
+DEFAULT_MODEL_PATH = ARTIFACTS_DIR / "best_model.pth"
+DEFAULT_SCALER_PATH = ARTIFACTS_DIR / "scaler.joblib"
+DEFAULT_DATA_PATH = ARTIFACTS_DIR / "processed_climate.csv"
 SEQUENCE_LENGTH = 5
 
 
-# Replace this list with the exact feature order used in your teammate's notebook.
 FEATURE_COLUMNS = [
-    "CO2_Emissions_MTPC",
-    "Methane_Emissions_KTCO2e",
-    "Nitrous_Oxide_Emissions_KTCO2e",
-    "Forest_Area_Percent",
-    "Urban_Population_Percent",
-    "Renewable_Energy_Percent",
-    "Energy_Use_Per_Capita",
-    "GDP_USD",
+    "Year",
+    "CO2_Emissions",
     "Population",
+    "Forest_Area",
+    "GDP",
+    "Renewable_Energy_Usage",
+    "Methane_Emissions",
+    "Sea_Level_Rise",
+    "Arctic_Ice_Extent",
+    "Urbanization",
+    "Deforestation_Rate",
+    "Extreme_Weather_Events",
+    "Average_Rainfall",
+    "Solar_Energy_Potential",
+    "Waste_Management",
+    "Per_Capita_Emissions",
+    "Industrial_Activity",
+    "Air_Pollution_Index",
+    "Biodiversity_Index",
+    "Ocean_Acidification",
+    "Fossil_Fuel_Usage",
+    "Energy_Consumption_Per_Capita",
+    "Policy_Score",
+    "Average_Temperature",
 ]
 
 TARGET_COLUMN = "Temperature_Anomaly"
-COUNTRY_ID_CANDIDATES = ["country_id", "Country_ID", "CountryId"]
-COUNTRY_NAME_CANDIDATES = ["country_name", "Country", "Country_Name", "country"]
+COUNTRY_ID_CANDIDATES = ["country_id", "Country_ID", "CountryId", "Country"]
+COUNTRY_NAME_CANDIDATES = ["country_name", "Country_Name", "country"]
 YEAR_CANDIDATES = ["year", "Year"]
 
 
@@ -62,30 +76,34 @@ class PredictionResponse(BaseModel):
     predicted_anomaly: float
 
 
-class RegularizedLSTM(nn.Module):
+class ClimateLSTM(nn.Module):
     def __init__(
         self,
         input_size: int,
-        hidden_size: int = 64,
-        num_layers: int = 2,
-        dropout: float = 0.2,
+        hidden_size: int = 16,
+        num_layers: int = 1,
+        dropout: float = 0.3,
     ) -> None:
         super().__init__()
-        recurrent_dropout = dropout if num_layers > 1 else 0.0
         self.lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
-            dropout=recurrent_dropout,
         )
-        self.dropout = nn.Dropout(dropout)
-        self.head = nn.Linear(hidden_size, 1)
+        self.dropout1 = nn.Dropout(dropout)
+        self.fc1 = nn.Linear(hidden_size, 8)
+        self.relu = nn.ReLU()
+        self.dropout2 = nn.Dropout(dropout)
+        self.fc2 = nn.Linear(8, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        output, _ = self.lstm(x)
-        output = self.dropout(output[:, -1, :])
-        return self.head(output)
+        lstm_out, _ = self.lstm(x)
+        x = self.dropout1(lstm_out[:, -1, :])
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.dropout2(x)
+        return self.fc2(x)
 
 
 app = FastAPI(title="Climate LSTM API", version="1.0.0")
@@ -135,7 +153,7 @@ def _load_model(model_path: Path, input_size: int) -> nn.Module:
         checkpoint.eval()
         return checkpoint
 
-    model = RegularizedLSTM(input_size=input_size)
+    model = ClimateLSTM(input_size=input_size)
 
     state_dict = checkpoint.get("model_state_dict") if isinstance(checkpoint, dict) else None
     if state_dict is None and isinstance(checkpoint, dict):
@@ -245,7 +263,7 @@ def get_options() -> dict[str, Any]:
         base_years = [
             year
             for year in sorted(year_set)
-            if all(required_year in year_set for required_year in range(year - 4, year + 1))
+            if all(required_year in year_set for required_year in range(year - SEQUENCE_LENGTH, year))
         ]
         if not base_years:
             continue
@@ -285,7 +303,7 @@ def predict(payload: PredictionRequest) -> PredictionResponse:
     sequence_df = _build_sequence(country_df, year_column, payload.target_year)
     sequence_features = sequence_df[FEATURE_COLUMNS].copy()
 
-    co2_feature = "CO2_Emissions_MTPC"
+    co2_feature = "CO2_Emissions"
     if co2_feature not in sequence_features.columns:
         raise HTTPException(
             status_code=500,

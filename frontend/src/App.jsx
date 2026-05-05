@@ -81,19 +81,17 @@ function App() {
     [countries, selectedCountryId],
   )
 
-  const availableBaseYears = selectedCountry?.base_years ?? []
+  const availableBaseYears = useMemo(
+    () => selectedCountry?.base_years ?? [],
+    [selectedCountry],
+  )
 
-  useEffect(() => {
-    if (!selectedCountry) return
-    if (availableBaseYears.length === 0) {
-      setSelectedBaseYear('')
-      return
-    }
-
-    const currentYear = Number(selectedBaseYear)
-    if (!availableBaseYears.includes(currentYear)) {
-      setSelectedBaseYear(String(availableBaseYears.at(-1)))
-    }
+  const effectiveBaseYear = useMemo(() => {
+    if (!selectedCountry || availableBaseYears.length === 0) return ''
+    const current = Number(selectedBaseYear)
+    return availableBaseYears.includes(current)
+      ? String(current)
+      : String(availableBaseYears.at(-1))
   }, [availableBaseYears, selectedBaseYear, selectedCountry])
 
   const chartData = useMemo(() => {
@@ -117,12 +115,12 @@ function App() {
 
   async function handleSubmit(event) {
     event.preventDefault()
-    if (!selectedCountryId || !selectedBaseYear) return
+    if (!selectedCountryId || !effectiveBaseYear) return
 
     try {
       setPredicting(true)
       setError('')
-      const targetYear = Number(selectedBaseYear) + 1
+      const targetYear = Number(effectiveBaseYear) + 1
       const response = await api.post('/predict', {
         country_id: selectedCountryId,
         target_year: targetYear,
@@ -176,7 +174,7 @@ function App() {
           <label className="field">
             <span>Base Year</span>
             <select
-              value={selectedBaseYear}
+              value={effectiveBaseYear}
               onChange={(event) => setSelectedBaseYear(event.target.value)}
               disabled={loading || availableBaseYears.length === 0}
             >
